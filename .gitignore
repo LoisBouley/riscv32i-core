@@ -1,0 +1,6 @@
+RTL
+out
+build
+mill*
+.prog*
+bench/mem
