@@ -10,72 +10,134 @@ class Rv32i(sim: Boolean = true) extends Module {
     val valid_x31  = if (sim)  Some(Output(Bool())) else None
   })
 
-  io.ibus.wdata := 0.U
 
-  io.dbus.addr := 0.U
-  io.dbus.wdata := 0.U
-  io.dbus.be := VecInit(false.B, false.B, false.B, false.B)
-  io.dbus.en := false.B
+  //=============================================
+  // Fetch : Lecture de l'instruction
+  //=============================================
 
-  if (sim) io.valid_x31.get := false.B
-  io.x31 := 0.U
-
+  //registre pc initialisé à 0
   val pc = RegInit(0.U(32.W))
 
-  val rf  = Module(new RF())
-  val alu = Module(new ALU())
-
-  // Etape fetch
-  io.ibus.addr := pc
-  io.ibus.en := true.B
-  io.ibus.be := VecInit(false.B, false.B, false.B, false.B)
-
-  // Registres pipeline 
-  // Capture l'instruction courante et son adresse de l'instruction
-  val insn_dec = RegNext(io.ibus.rdata) // instruction visible lors de l'étape de décodage
-  val pc_dec   = RegNext(pc) // adresse correspondant à insn_dec
-
-  // Prochaine instruction
+  //mis à jour de pc pour lire l'instruction suivante à chaque cycle
   pc := pc + 4.U
 
-  // Décodage de l'instruction
-  alu.io.opcode := insn_dec(6,0)
-  alu.io.funct3 := insn_dec(14,12)
-  alu.io.funct7 := insn_dec(31,25)
+  //connexion à la mémoire d'instruction IMEM via ibus
+  io.ibus.addr := pc
+  io.ibus.en := true.B //on lit en permanence
+  io.ibus.be := VecInit(false.B, false.B, false.B, false.B) // pas d'écriture
+  io.ibus.wdata := 0.U // pas d'écriture
 
-  rf.io.rsb_addr := insn_dec(24,20)
-  rf.io.rsa_addr := insn_dec(19,15)
-  rf.io.rw_addr  := insn_dec(11,7)
+  //ajout d'un registre de pipeline entre fetch et decode (pipeline du PC)
+  //indispensable car la mémoire d'instruction répond avec un cycle de latence
+  val pc_retarde = RegNext(pc)
 
-  // Signaux de contrôle
-  val isLui = alu.io.opcode === "b0110111".U
-  val isAuipc = alu.io.opcode === "b0010111".U
-  val isIIRop = alu.io.opcode === "b0010011".U // opération type I / IR
-  val isRop = alu.io.opcode === "b0110011".U // opération type R
+  //=============================================
+  // Decode : Décodage de l'instruction
+  //=============================================
 
-  // Génération de l'immédiat
-  val imm_u = insn_dec(31,12) ## 0.U(12.W)
-  val imm_i = insn_dec(31, 20).asSInt.pad(32).asUInt // extension de signe
-  val imm   = Mux(isLui || isAuipc, imm_u, imm_i)
+  val insn = io.ibus.rdata //récupération de l'instruction
 
-  // Write-enable activé si opération avec écriture
-  rf.io.we := isLui || isAuipc || isIIRop || isRop
+  //On récupère les adresses des registres rs1, rs2 et rd
+  val rs1 = insn(19,15)
+  val rs2 = insn(24,20)
+  val rd = insn(11,7)
+  val funct3 = insn(14, 12)
 
-  // Inputs pour l'ALU
-  // - opA: rs1 or pc (pour auipc)
-  // - opB: imm_i ou imm_u (pour auipc)
-  // c'est l'ALU qui s'occupe de prendre uniquement les bits nécessaires pour les décalages
-  alu.io.opA := Mux(isAuipc, pc_dec, rf.io.rsa_data)
-  alu.io.opB := Mux(isIIRop, imm, rf.io.rsb_data)
+  //détection du type de l'instruction via l'opcode
+  val opcode = insn(6,0)
+  val isLUI   = opcode === "b0110111".U  // LUI
+  val isAUIPC = opcode === "b0010111".U  // AUIPC
+  val isIIR  = opcode === "b0010011".U  // Instructions de type I/IR (ADDI, SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI)
+  val isR   = opcode === "b0110011".U  // Instructions de type R (ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND)
 
-  // Ecriture du résultat de l'instruction dans le Registry File
-  rf.io.rw_data := Mux(isLui, imm_u, alu.io.result)
 
-  // Outputs pour les simulations
-  io.x31 := rf.io.x31_out
+  // Génération de l'immédiat de type U
+  val immU = Cat(insn(31,12), 0.U(12.W))
+
+  // Génération de l'immédiat de type I
+  val immI = Cat(Fill(20, insn(31)), insn(31,20)) //extension de signe
+
+  val rf = Module(new RFLUTRAM(sim)) //création de RF avec le module de TP6
+
+  //Connexion aux ports de RF pour la lecture
+  rf.io.rs1_addr := rs1
+  rf.io.rs2_addr := rs2
+  rf.io.rd_addr := rd
+
+  val rs1_data = rf.io.rs1_data
+  val rs2_data = rf.io.rs2_data
+
+  //=============================================
+  // Execute : Instanciation de l'ALU
+  //=============================================
+
+  val alu = Module(new ALU)
+
+  //Sélection de la source 1
+  //Pour AUIPC, source 1 = PC retardé
+  //Pour les instructions de type I/IR et R, source 1 = rs1_data
+  alu.io.opA := Mux(isAUIPC, pc_retarde, rs1_data)
+
+  //Sélection de la source 2
+  //Pour AUIPC, source2 = immU
+  //Pour les instructions de type I/IR, source2 = immI
+  //Pour les instructions de type R, source2 = rs2_data
+  alu.io.opB := MuxCase(0.U, Seq(
+    isAUIPC -> immU,
+    isIIR  -> immI,
+    isR   -> rs2_data
+  ))
+
+  //Exception : pour ADDI, le bit30 ne fait pas sens et on risque de faire une soustraction si on le prend en compte
+  val is_sra_srai = funct3 === "b101".U && insn(30) // Shift Right Arithmetic (I ou R)
+  val is_sub = isR && insn(30) // Sub (pour R uniquement)
+  val instru_bit30 = is_sra_srai || is_sub
+
+  //Pour AUIPC, il n'y a pas de funct3 comme pour ADDI
+  //On force donc l'opération à une addition ADDI (funct3 = 000, bit30 = 0)
+  alu.io.funct3 := Mux(isAUIPC, "b000".U, funct3)
+  alu.io.instru_bit30 := Mux(isAUIPC, false.B, instru_bit30)
+  
+  val res_alu = alu.io.result
+
+  //==============================================
+  // Writeback : Écriture du résultat dans RF
+  //==============================================
+
+  //sélection de la donnée à écrire dans RF
+  rf.io.rd_data := Mux(isLUI, immU, res_alu)
+
+  //on écrit ssi l'instruction est de type LUI, AUIPC I/IR ou R
+  val weRf = isLUI || isAUIPC || isIIR || isR 
+  rf.io.we := weRf
+
+
+
+
+
+  //gestion des sorties (non utilisées pour l'instant)
+  io.dbus.addr := 0.U
+  io.dbus.en := false.B
+  io.dbus.be := VecInit(false.B, false.B, false.B, false.B)
+  io.dbus.wdata := 0.U
+
+
+// Sorties de debug
+
   if (sim) {
-    io.valid_x31.get := (rf.io.we && (rf.io.rw_addr === 31.U))
+    // Sortie de debug : valeur de x31
+    io.x31 := rf.io.debug_x31.get
+    // Signal indiquant qu'une écriture dans x31 a eu lieu
+    io.valid_x31.get := rf.io.we && (rd === 31.U)
+  } else {
+    io.x31 := 0.U
   }
 
-  dontTouch(io.x31)
+  dontTouch(rf.io.rs1_data)
+  dontTouch(rf.io.rs2_data)
+  dontTouch(immU)
+  dontTouch(immI)
+  dontTouch(pc_retarde)  
+
+  locally(sim)
 }

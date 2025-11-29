@@ -7,61 +7,59 @@ class ALU extends Module {
   val io = IO(new Bundle {
     val opA = Input(UInt(32.W))
     val opB = Input(UInt(32.W))
-    val opcode = Input(UInt(7.W))
     val funct3 = Input(UInt(3.W))
-    val funct7 = Input(UInt(7.W))
+    val instru_bit30 = Input(Bool()) // Juste ce bit pour distinguer SRL/SRA, SRLI/SRAI et ADD/SUB
     val result = Output(UInt(32.W))
   })
 
 
-  val isAuipc = io.opcode === "b0010111".U
-
-  // Instruction type I / IR
-  val isIIRop = io.opcode === "b0010011".U
-
-  val isAddi = isIIRop && (io.funct3 === "b000".U)
-  val isAndi = isIIRop && (io.funct3 === "b111".U)
-  val isOri  = isIIRop && (io.funct3 === "b110".U)
-  val isXori = isIIRop && (io.funct3 === "b100".U)
-  val isSlli = isIIRop && (io.funct3 === "b001".U)
-  val isSrli = isIIRop && (io.funct3 === "b101".U) && (io.funct7 === "b0000000".U)
-  val isSrai = isIIRop && (io.funct3 === "b101".U) && (io.funct7 === "b0100000".U)
-  val isSlti  = isIIRop && (io.funct3 === "b010".U)
-  val isSltiu = isIIRop && (io.funct3 === "b011".U)
-
-  // Instruction type R
-  val isRop = io.opcode === "b0110011".U
-
-  val isAdd  = isRop && (io.funct3 === "b000".U) && (io.funct7 === "b0000000".U)
-  val isSub  = isRop && (io.funct3 === "b000".U) && (io.funct7 === "b0100000".U)
-  val isSll  = isRop && (io.funct3 === "b001".U)
-  val isSlt  = isRop && (io.funct3 === "b010".U)
-  val isSltu = isRop && (io.funct3 === "b011".U)
-  val isXor  = isRop && (io.funct3 === "b100".U)
-  val isSrl  = isRop && (io.funct3 === "b101".U) && (io.funct7 === "b0000000".U)
-  val isSra  = isRop && (io.funct3 === "b101".U) && (io.funct7 === "b0100000".U)
-  val isOr   = isRop && (io.funct3 === "b110".U)
-  val isAnd  = isRop && (io.funct3 === "b111".U)
+  val isArith  = (io.funct3 === "b000".U)
+  val isSll  = (io.funct3 === "b001".U)
+  val isSlt  = (io.funct3 === "b010".U)
+  val isSltu = (io.funct3 === "b011".U)
+  val isSrl  = (io.funct3 === "b101".U) && (io.instru_bit30 === false.B)
+  val isSra  = (io.funct3 === "b101".U) && (io.instru_bit30 === true.B)
+  val isXor  = (io.funct3 === "b100".U)
+  val isOr   = (io.funct3 === "b110".U)
+  val isAnd  = (io.funct3 === "b111".U)
 
 
-  // 5 bits pour les décalages
-  val shamt = io.opB(4,0)
-
-  io.result := MuxCase(0.U, Seq(
-
-    (isAdd  || isAddi) -> (io.opA + io.opB),
-    isSub -> (io.opA - io.opB),
-
-    (isSlt || isSlti) -> (io.opA.asSInt < io.opB.asSInt).asUInt,
-    (isSltu || isSltiu) -> (io.opA < io.opB),
-
-    (isXor || isXori) -> (io.opA ^ io.opB),
-    (isOr || isOri) -> (io.opA | io.opB),
-    (isAnd || isAndi) -> (io.opA & io.opB),
-
-    (isSll || isSlli) -> ((io.opA << shamt).asUInt),
-    (isSrl || isSrli) -> ((io.opA >> shamt).asUInt),
-    (isSra || isSrai) -> ((io.opA.asSInt >> shamt).asUInt)
+  // Addition et soustraction
+  val arithRes  = Mux(io.instru_bit30, io.opA - io.opB, io.opA + io.opB)
+  
+  // Opérations logiques
+  val resLogic = MuxCase(0.U, Seq(
+    isOr  -> (io.opA | io.opB),
+    isAnd -> (io.opA & io.opB),
+    isXor -> (io.opA ^ io.opB)
   ))
 
+  // Décalages
+  val shamt = io.opB(4,0) // nombre de positions à décaler
+  val resShift = MuxCase(0.U, Seq(
+    isSll -> (io.opA << shamt).asUInt,
+    isSrl -> (io.opA >> shamt).asUInt,
+    isSra -> (io.opA.asSInt >> shamt).asUInt
+  ))
+
+  // Comparaisons
+  val resCompare = MuxCase(0.U, Seq(
+    isSlt  -> (io.opA.asSInt < io.opB.asSInt).asUInt,
+    isSltu -> (io.opA < io.opB)
+  ))
+
+  io.result := MuxCase(0.U, Seq(
+    isArith -> arithRes,
+
+    isOr   -> resLogic,
+    isAnd  -> resLogic,
+    isXor  -> resLogic,
+
+    isSll  -> resShift,
+    isSrl  -> resShift,
+    isSra  -> resShift,
+
+    isSlt  -> resCompare,
+    isSltu -> resCompare
+  ))
 }
