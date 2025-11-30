@@ -55,6 +55,7 @@ class Rv32i(sim: Boolean = true) extends Module {
   val isJal = opcode === "b1101111".U // Jal 
   val isJalr = opcode === "b1100111".U // Jalr (de type I mais cas particulier)
   val isBranch = opcode === "b1100011".U // Instructions de type B (BEQ, BNE, BLT, BGE, BLTU, BGEU)
+  val isStore = opcode === "b0100011".U // Instructions de type S (SB, SH, SW)
 
   //On met 1 dans jumpTaken si on a un saut pour executer NOP au cycle suivant
   jumpTaken := isJal || isJalr 
@@ -64,6 +65,7 @@ class Rv32i(sim: Boolean = true) extends Module {
   val immI = Cat(Fill(20, insn(31)), insn(31,20))
   val immJ = Cat(Fill(12, insn(31)), insn(19, 12), insn(20), insn(30, 21), 0.U(1.W))
   val immB = Cat(Fill(20, insn(31)), insn(7), insn(30,25), insn(11,8), 0.U(1.W))
+  val immS = Cat(Fill(20, insn(31)), insn(31,25), insn(11,7))
 
   val rf = Module(new RFLUTRAM(sim)) //création de RF avec le module de TP6
 
@@ -93,7 +95,8 @@ class Rv32i(sim: Boolean = true) extends Module {
   alu.io.opB := MuxCase(0.U, Seq(
     isAuipc -> immU,
     (isIIR || isJalr) -> immI,
-    isR   -> rs2_data
+    isR   -> rs2_data,
+    isStore -> immS
   ))
 
   //Exception : pour ADDI, le bit30 ne fait pas sens et on risque de faire une soustraction si on le prend en compte
@@ -141,6 +144,34 @@ class Rv32i(sim: Boolean = true) extends Module {
   val jump_with_imm = isJal || takeBranch
   pc := Mux(isJalr,target_jalr, Mux(jump_with_imm,immediat_jump, 4.U) + Mux(jump_with_imm,pc_retarde,pc))
   
+
+  //===========================================
+  // Memory : Accès à la mémoire de données
+  //===========================================
+
+  io.dbus.addr := res_alu //adresse calculée par l'ALU
+
+  //Données à écrire en mémoire avec l'astuce de réplication
+  val sb_data = Fill(4, rs2_data(7,0))
+  val sh_data = Cat(Fill(2, rs2_data(15,0)))
+  val sw_data = rs2_data 
+
+  io.dbus.wdata := MuxCase(0.U, Seq(
+    (funct3 === "b000".U) -> sb_data, // SB
+    (funct3 === "b001".U) -> sh_data, // SH
+    (funct3 === "b010".U) -> sw_data  // SW
+  ))
+
+  val addr_lsb = res_alu(1,0)
+  io.dbus.be := MuxCase("b0000".U, Seq(
+    (funct3 === "b000".U) -> ("b0001".U << addr_lsb), // SB : 00->0001, 01->0010, 10->0100, 11->1000
+    (funct3 === "b001".U) -> ( "b0011".U << addr_lsb), // SH : 00->0011, 10->1100
+    (funct3 === "b010".U) -> "b1111".U  // SW
+  ))
+
+  io.dbus.en := isStore
+
+
   //==============================================
   // Writeback : Écriture du résultat dans RF
   //==============================================
@@ -158,15 +189,6 @@ class Rv32i(sim: Boolean = true) extends Module {
   val weRf = isLui || isAuipc || isIIR || isR 
   rf.io.we := weRf
 
-
-
-
-
-  //gestion des sorties (non utilisées pour l'instant)
-  io.dbus.addr := 0.U
-  io.dbus.en := false.B
-  io.dbus.be := VecInit(false.B, false.B, false.B, false.B)
-  io.dbus.wdata := 0.U
 
 
 // Sorties de debug
