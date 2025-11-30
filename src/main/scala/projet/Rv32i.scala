@@ -18,9 +18,6 @@ class Rv32i(sim: Boolean = true) extends Module {
   //registre pc initialisé à 0
   val pc = RegInit(0.U(32.W))
 
-  //mis à jour de pc pour lire l'instruction suivante à chaque cycle
-  pc := pc + 4.U
-
   //connexion à la mémoire d'instruction IMEM via ibus
   io.ibus.addr := pc
   io.ibus.en := true.B //on lit en permanence
@@ -31,11 +28,17 @@ class Rv32i(sim: Boolean = true) extends Module {
   //indispensable car la mémoire d'instruction répond avec un cycle de latence
   val pc_retarde = RegNext(pc)
 
+  //Registre pour indiquer si un saut a été pris
+  val jumpTaken = RegInit(false.B) 
+
   //=============================================
   // Decode : Décodage de l'instruction
   //=============================================
 
-  val insn = io.ibus.rdata //récupération de l'instruction
+  // Si on a pris un saut au cycle précédent, l'instruction qui arrive est fausse.
+  // On la remplace par un NOP = instruction qui fait rien
+  // On choisit arbitrairement (ADDI x0, x0, 0 -> 0x00000013)
+  val insn = Mux(jumpTaken, "h00000013".U, io.ibus.rdata) //récupération de l'instruction
 
   //On récupère les adresses des registres rs1, rs2 et rd
   val rs1 = insn(19,15)
@@ -45,17 +48,20 @@ class Rv32i(sim: Boolean = true) extends Module {
 
   //détection du type de l'instruction via l'opcode
   val opcode = insn(6,0)
-  val isLUI   = opcode === "b0110111".U  // LUI
-  val isAUIPC = opcode === "b0010111".U  // AUIPC
+  val isLui   = opcode === "b0110111".U  // Lui
+  val isAuipc = opcode === "b0010111".U  // Auipc
   val isIIR  = opcode === "b0010011".U  // Instructions de type I/IR (ADDI, SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI)
   val isR   = opcode === "b0110011".U  // Instructions de type R (ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND)
+  val isJal = opcode === "b1101111".U // Jal
+  val isJalr = opcode === "b1100111".U // Jalr (de type I mais cas particulier)
 
+  //On met 1 dans jumpTaken si on a un saut pour executer NOP au cycle suivant
+  jumpTaken := isJal || isJalr 
 
-  // Génération de l'immédiat de type U
+  // Génération des immédiats
   val immU = Cat(insn(31,12), 0.U(12.W))
-
-  // Génération de l'immédiat de type I
-  val immI = Cat(Fill(20, insn(31)), insn(31,20)) //extension de signe
+  val immI = Cat(Fill(20, insn(31)), insn(31,20))
+  val immJ = Cat(Fill(12, insn(31)), insn(19, 12), insn(20), insn(30, 21), 0.U(1.W))
 
   val rf = Module(new RFLUTRAM(sim)) //création de RF avec le module de TP6
 
@@ -74,17 +80,17 @@ class Rv32i(sim: Boolean = true) extends Module {
   val alu = Module(new ALU)
 
   //Sélection de la source 1
-  //Pour AUIPC, source 1 = PC retardé
+  //Pour Auipc, source 1 = PC retardé
   //Pour les instructions de type I/IR et R, source 1 = rs1_data
-  alu.io.opA := Mux(isAUIPC, pc_retarde, rs1_data)
+  alu.io.opA := Mux(isAuipc, pc_retarde, rs1_data)
 
   //Sélection de la source 2
-  //Pour AUIPC, source2 = immU
+  //Pour Auipc, source2 = immU
   //Pour les instructions de type I/IR, source2 = immI
   //Pour les instructions de type R, source2 = rs2_data
   alu.io.opB := MuxCase(0.U, Seq(
-    isAUIPC -> immU,
-    isIIR  -> immI,
+    isAuipc -> immU,
+    (isIIR || isJalr) -> immI,
     isR   -> rs2_data
   ))
 
@@ -93,22 +99,37 @@ class Rv32i(sim: Boolean = true) extends Module {
   val is_sub = isR && insn(30) // Sub (pour R uniquement)
   val instru_bit30 = is_sra_srai || is_sub
 
-  //Pour AUIPC, il n'y a pas de funct3 comme pour ADDI
+  //Pour Auipc, il n'y a pas de funct3
   //On force donc l'opération à une addition ADDI (funct3 = 000, bit30 = 0)
-  alu.io.funct3 := Mux(isAUIPC, "b000".U, funct3)
-  alu.io.instru_bit30 := Mux(isAUIPC, false.B, instru_bit30)
-  
+  //Pour JALR, il a bien le même funct3 que ADDI (000) donc on a bien la somme voulue
+  alu.io.funct3 := Mux(isAuipc, "b000".U, funct3)
+  alu.io.instru_bit30 := Mux(isAuipc, false.B, instru_bit30)
   val res_alu = alu.io.result
 
+  ///////////////////////////////////////////////////////////////////////
+
+  //mise à jour du PC
+  //pour JAL : pc = pc + immJ
+  //pour JALR : pc = (rs1 + immI) & ~1
+  //sinon pc = pc + 4
+  val target_jalr = res_alu & "hfffffffe".U //on force le LSB à 0
+  pc := Mux(isJalr,target_jalr, Mux(isJal,immJ, 4.U) + Mux(isJal,pc_retarde,pc))
+  
   //==============================================
   // Writeback : Écriture du résultat dans RF
   //==============================================
 
   //sélection de la donnée à écrire dans RF
-  rf.io.rd_data := Mux(isLUI, immU, res_alu)
+  /*rf.io.rd_data := MuxCase(0.U, Seq(
+    isLui   -> immU,
+    (isAuipc || isIIR || isR) -> res_alu,
+    (isJal ||isJalr)  -> pc //adresse de l'instruction suivante (pc_retarde + 4.U)
+  ))*/
 
-  //on écrit ssi l'instruction est de type LUI, AUIPC I/IR ou R
-  val weRf = isLUI || isAUIPC || isIIR || isR 
+  rf.io.rd_data := Mux(isJal || isJalr,  pc, Mux(isLui,immU,res_alu))
+
+  //on écrit ssi l'instruction est Lui, Auipc I/IR ou R
+  val weRf = isLui || isAuipc || isIIR || isR 
   rf.io.we := weRf
 
 
