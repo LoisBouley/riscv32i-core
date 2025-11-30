@@ -52,8 +52,9 @@ class Rv32i(sim: Boolean = true) extends Module {
   val isAuipc = opcode === "b0010111".U  // Auipc
   val isIIR  = opcode === "b0010011".U  // Instructions de type I/IR (ADDI, SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI)
   val isR   = opcode === "b0110011".U  // Instructions de type R (ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND)
-  val isJal = opcode === "b1101111".U // Jal
+  val isJal = opcode === "b1101111".U // Jal 
   val isJalr = opcode === "b1100111".U // Jalr (de type I mais cas particulier)
+  val isBranch = opcode === "b1100011".U // Instructions de type B (BEQ, BNE, BLT, BGE, BLTU, BGEU)
 
   //On met 1 dans jumpTaken si on a un saut pour executer NOP au cycle suivant
   jumpTaken := isJal || isJalr 
@@ -62,6 +63,7 @@ class Rv32i(sim: Boolean = true) extends Module {
   val immU = Cat(insn(31,12), 0.U(12.W))
   val immI = Cat(Fill(20, insn(31)), insn(31,20))
   val immJ = Cat(Fill(12, insn(31)), insn(19, 12), insn(20), insn(30, 21), 0.U(1.W))
+  val immB = Cat(Fill(20, insn(31)), insn(7), insn(30,25), insn(11,8), 0.U(1.W))
 
   val rf = Module(new RFLUTRAM(sim)) //création de RF avec le module de TP6
 
@@ -95,25 +97,49 @@ class Rv32i(sim: Boolean = true) extends Module {
   ))
 
   //Exception : pour ADDI, le bit30 ne fait pas sens et on risque de faire une soustraction si on le prend en compte
+  //on répertorie les cas où on a besoin de mettre le bit30 à 1
   val is_sra_srai = funct3 === "b101".U && insn(30) // Shift Right Arithmetic (I ou R)
   val is_sub = isR && insn(30) // Sub (pour R uniquement)
-  val instru_bit30 = is_sra_srai || is_sub
+  val is_beq_bne = isBranch && (funct3(2) === 0.U) // BEQ ou BNE
+  val instru_bit30 = is_sra_srai || is_sub || is_beq_bne
+
+  //Pour les instructions de type B, on fait une traduction pour que l'ALU comprenne quelle opération faire
+  //BEQ/BNE (0xx) -> 000 (Arith)
+  //BLT/BGE (10x) -> 010 (SLT)
+  //BLTU/BGEU (11x) -> 011 (SLTU)
+  val funct3_branch = Mux(funct3(2),Cat("b01".U, funct3(1)), "b000".U)
 
   //Pour Auipc, il n'y a pas de funct3
   //On force donc l'opération à une addition ADDI (funct3 = 000, bit30 = 0)
   //Pour JALR, il a bien le même funct3 que ADDI (000) donc on a bien la somme voulue
-  alu.io.funct3 := Mux(isAuipc, "b000".U, funct3)
+  alu.io.funct3 := MuxCase(funct3, Seq(
+    isAuipc  -> 0.U,
+    isBranch -> funct3_branch
+  ))
   alu.io.instru_bit30 := Mux(isAuipc, false.B, instru_bit30)
   val res_alu = alu.io.result
 
   ///////////////////////////////////////////////////////////////////////
+  // On prend la branche ? 
+  val alu_zero = res_alu === 0.U
+  val takeBranch = MuxCase(false.B, Seq(
+    (isBranch && (funct3 === "b000".U)) -> alu_zero, // BEQ
+    (isBranch && (funct3 === "b001".U)) -> !alu_zero, // BNE
+    (isBranch && (funct3 === "b100".U)) -> !alu_zero, // BLT
+    (isBranch && (funct3 === "b101".U)) -> alu_zero, // BGE
+    (isBranch && (funct3 === "b110".U)) -> !alu_zero, // BLTU
+    (isBranch && (funct3 === "b111".U)) -> alu_zero // BGEU
+  ))
 
+  ///////////////////////////////////////////////////////////////////////
   //mise à jour du PC
   //pour JAL : pc = pc + immJ
   //pour JALR : pc = (rs1 + immI) & ~1
   //sinon pc = pc + 4
   val target_jalr = res_alu & "hfffffffe".U //on force le LSB à 0
-  pc := Mux(isJalr,target_jalr, Mux(isJal,immJ, 4.U) + Mux(isJal,pc_retarde,pc))
+  val immediat_jump = Mux(isJal, immJ, immB)
+  val jump_with_imm = isJal || takeBranch
+  pc := Mux(isJalr,target_jalr, Mux(jump_with_imm,immediat_jump, 4.U) + Mux(jump_with_imm,pc_retarde,pc))
   
   //==============================================
   // Writeback : Écriture du résultat dans RF
