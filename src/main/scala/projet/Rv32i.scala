@@ -167,7 +167,7 @@ class Rv32i(sim: Boolean = true) extends Module {
     (funct3 === "b000".U) -> ("b0001".U << addr_lsb), // SB : 00->0001, 01->0010, 10->0100, 11->1000
     (funct3 === "b001".U) -> ( "b0011".U << addr_lsb), // SH : 00->0011, 10->1100
     (funct3 === "b010".U) -> "b1111".U  // SW
-  ))
+  )).asTypeOf(Vec(4, Bool()))
 
   io.dbus.en := isStore
 
