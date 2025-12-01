@@ -1,6 +1,7 @@
 package projet
 
 import chisel3._
+import chisel3.util._
 
 class Rv32i(sim: Boolean = true) extends Module {
   val io = IO(new Bundle {
@@ -238,8 +239,10 @@ class Rv32i(sim: Boolean = true) extends Module {
   if (sim) {
     // Sortie de debug : valeur de x31
     io.x31 := rf.io.debug_x31.get
-    // Signal indiquant qu'une écriture dans x31 a eu lieu
-    io.valid_x31.get := rf.io.we && (rd === 31.U)
+    // Signal indiquant qu'une écriture dans x31 a eu lieu. 
+    //On le retarde d'un cycle pour qu'il soit activé lors du premier cycle où x31 contient la nouvelle valeur 
+    //(RF est synchronne en écriture)
+    io.valid_x31.get := RegNext(rf.io.we && (rd === 31.U))
   } else {
     io.x31 := 0.U
   }

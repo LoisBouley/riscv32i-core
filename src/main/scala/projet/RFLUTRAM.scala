@@ -16,13 +16,6 @@ class RFLUTRAM(sim: Boolean = false) extends Module {
 
   val regs = Mem(32, UInt(32.W))
 
-  //initialisation pour la simulation
-  if (sim) {
-    when(reset.asBool) {
-      regs(0) := 0.U
-    }
-  }
-
   // Écriture dans le registre
   // On interdit toujours d'écrire en 0
   // Cela garantit que si la case 0 vaut 0, elle restera à 0.
@@ -35,8 +28,15 @@ class RFLUTRAM(sim: Boolean = false) extends Module {
   // Lecture du port 2
   io.rs2_data := regs(io.rs2_addr)
 
+  //initialisation pour la simulation + debug x31
   if (sim) {
     io.debug_x31.get := regs(31)
+
+    when(reset.asBool) {
+      for (i <- 0 until 32) {
+        regs(i) := 0.U
+      }
+    }
   }
 
   locally(sim) // Stub pour éviter les warnings avant implantation
