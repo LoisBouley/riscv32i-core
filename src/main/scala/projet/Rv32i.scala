@@ -56,6 +56,8 @@ class Rv32i(sim: Boolean = true) extends Module {
   val isJalr = opcode === "b1100111".U // Jalr (de type I mais cas particulier)
   val isBranch = opcode === "b1100011".U // Instructions de type B (BEQ, BNE, BLT, BGE, BLTU, BGEU)
   val isStore = opcode === "b0100011".U // Instructions de type S (SB, SH, SW)
+  val isLoad = opcode === "b0000011".U // Instructions de type Load (LB, LH, LW, LBU, LHU)
+
 
   //On met 1 dans jumpTaken si on a un saut pour executer NOP au cycle suivant
   jumpTaken := isJal || isJalr 
@@ -169,21 +171,61 @@ class Rv32i(sim: Boolean = true) extends Module {
     (funct3 === "b010".U) -> "b1111".U  // SW
   )).asTypeOf(Vec(4, Bool()))
 
-  io.dbus.en := isStore
+  io.dbus.en := isStore || isLoad //activation de la mémoire de données pour les instructions Store et Load
 
 
   //==============================================
-  // Writeback : Écriture du résultat dans RF
+  // Writeback : Écriture dans RF
   //==============================================
 
-  //sélection de la donnée à écrire dans RF
-  /*rf.io.rd_data := MuxCase(0.U, Seq(
-    isLui   -> immU,
-    (isAuipc || isIIR || isR) -> res_alu,
-    (isJal ||isJalr)  -> pc //adresse de l'instruction suivante (pc_retarde + 4.U)
-  ))*/
+  //On ajoute le registre de pipeline entre Decode/Execute/Memory et Writeback
+  //On conserve les signaux nécessaires pour l'écriture dans RF sur un cycle avec RegNext
 
-  rf.io.rd_data := Mux(isJal || isJalr,  pc, Mux(isLui,immU,res_alu))
+  //syntaxe : RegNext(signal, init), on initialise à false par défaut par sécurité pour avoir un false au reset
+  val wb_reg_we = RegNext(isLui || isAuipc || isIIR || isR || isJal || isJalr || isLoad, false.B)
+  val wb_reg_rd = RegNext(rd)
+  //adresse de l'instruction suivante (pc_retarde + 4.U) = pc
+  val wb_reg_data = RegNext(Mux(isJal || isJalr,  pc, Mux(isLui,immU,res_alu)))
+  val wb_reg_load = RegNext(isLoad)
+  val wb_reg_funct3 = RegNext(funct3) // pour le type de load
+  val wb_reg_align = RegNext(res_alu(1,0)) // pour l'alignement en load
+
+  
+  //Traitement de la donnée en sortie de la mémoire (pour les instructions Load)
+  val load_data = io.dbus.rdata
+
+  /*
+  On effectue un décalage pour ramener l'octet/halfword voulu en position 0
+  Pour cela on utilise wb_reg_align sauvegardé
+  
+  Pour un byte : 
+  switch (wb_reg_align){
+    case 00 : rdata_shifted = load_data >> 0    (=load_data >> wb_reg_align * 0)
+    case 01 : rdata_shifted = load_data >> 8    (=load_data >> wb_reg_align * 8)
+    case 10 : rdata_shifted = load_data >> 16   (=load_data >> wb_reg_align * 16)
+    case 11 : rdata_shifted = load_data >> 24   (=load_data >> wb_reg_align * 24) (c'est le cat qui fait le *)
+  }
+
+  Pour un halfword : ça marche aussi (le cas 01 et le cas 11 ne sont pas utilisés)
+  */
+  val rdata_shifted = load_data >> Cat(wb_reg_align,0.U(3.W)) //décalage en fonction de l'alignement
+  val load_byte = rdata_shifted(7,0)
+  val load_halfword = rdata_shifted(15,0)
+
+  val load_data_formatted = MuxCase(0.U, Seq(
+    (wb_reg_funct3 === "b000".U) -> Cat(Fill(24, load_byte(7)), load_byte), // LB
+    (wb_reg_funct3 === "b001".U) -> Cat(Fill(16, load_halfword(15)), load_halfword), // LH
+    (wb_reg_funct3 === "b010".U) -> load_data, // LW
+    (wb_reg_funct3 === "b100".U) -> Cat(Fill(24, 0.U), load_byte), // LBU
+    (wb_reg_funct3 === "b101".U) -> Cat(Fill(16, 0.U), load_halfword) // LHU
+  ))
+
+  //sélection finale (le mux tout à droite) 
+  val rd_data_final = Mux(wb_reg_load, load_data_formatted, wb_reg_data)
+
+  rf.io.we := wb_reg_we
+  rf.io.rd_addr := wb_reg_rd
+  rf.io.rd_data := rd_data_final
 
   //on écrit ssi l'instruction est Lui, Auipc I/IR ou R
   val weRf = isLui || isAuipc || isIIR || isR 
@@ -206,7 +248,7 @@ class Rv32i(sim: Boolean = true) extends Module {
   dontTouch(rf.io.rs2_data)
   dontTouch(immU)
   dontTouch(immI)
-  dontTouch(pc_retarde)  
+  dontTouch(pc_retarde)
 
   locally(sim)
 }
