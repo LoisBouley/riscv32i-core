@@ -32,6 +32,8 @@ class Rv32i(sim: Boolean = true) extends Module {
   //Registre pour indiquer si un saut a été pris
   val jumpTaken = RegInit(false.B) 
 
+
+
   //=============================================
   // Decode : Décodage de l'instruction
   //=============================================
@@ -60,7 +62,7 @@ class Rv32i(sim: Boolean = true) extends Module {
   val isLoad = opcode === "b0000011".U // Instructions de type Load (LB, LH, LW, LBU, LHU)
 
 
-  // Génération des immédiats
+  //génération des immédiats
   val immU = Cat(insn(31,12), 0.U(12.W))
   val immI = Cat(Fill(20, insn(31)), insn(31,20))
   val immJ = Cat(Fill(12, insn(31)), insn(19, 12), insn(20), insn(30, 21), 0.U(1.W))
@@ -69,13 +71,19 @@ class Rv32i(sim: Boolean = true) extends Module {
 
   val rf = Module(new RFLUTRAM(sim)) //création de RF avec le module de TP6
 
-  //Connexion aux ports de RF pour la lecture
+  //connexion aux ports de RF
   rf.io.rs1_addr := rs1
   rf.io.rs2_addr := rs2
   rf.io.rd_addr := rd
+  //rf.io..rd_addr, rf.io.rd_data et rf.io.we seront pilotés en Writeback
 
-  val rs1_data = rf.io.rs1_data
-  val rs2_data = rf.io.rs2_data
+  //on utilise des fils ici pour eviter des problèmes de dépendances circulaires 
+  //on définit rs1_data et rs2_data plus bas
+  val rs1_data = Wire(UInt(32.W))
+  val rs2_data = Wire(UInt(32.W))
+
+
+
 
   //=============================================
   // Execute : Instanciation de l'ALU
@@ -86,16 +94,18 @@ class Rv32i(sim: Boolean = true) extends Module {
   //Sélection de la source 1
   //Pour Auipc, source 1 = PC retardé
   //Pour les instructions de type I/IR et R, source 1 = rs1_data
+  //On peut utliser rs1_data directement ici grâce au wire 
   alu.io.opA := Mux(isAuipc, pc_retarde, rs1_data)
 
   //Sélection de la source 2
   //Pour Auipc, source2 = immU
   //Pour les instructions de type I/IR, source2 = immI
   //Pour les instructions de type R, source2 = rs2_data
+  //On peut utliser rs2_data directement ici grâce au wire 
   alu.io.opB := MuxCase(0.U, Seq(
     isAuipc -> immU,
-    (isIIR || isJalr) -> immI,
-    (isR||isBranch)   -> rs2_data,
+    (isIIR || isJalr || isLoad) -> immI,
+    (isR || isBranch)   -> rs2_data,
     isStore -> immS
   ))
 
@@ -116,10 +126,10 @@ class Rv32i(sim: Boolean = true) extends Module {
   //On force donc l'opération à une addition ADDI (funct3 = 000, bit30 = 0)
   //Pour JALR, il a bien le même funct3 que ADDI (000) donc on a bien la somme voulue
   alu.io.funct3 := MuxCase(funct3, Seq(
-    (isAuipc || isStore) -> 0.U,
+    (isAuipc || isStore || isLoad) -> 0.U,
     isBranch -> funct3_branch
   ))
-  alu.io.instru_bit30 := Mux(isAuipc, false.B, instru_bit30)
+  alu.io.instru_bit30 := Mux(isAuipc || isStore || isLoad, false.B, instru_bit30)
   val res_alu = alu.io.result
 
   ///////////////////////////////////////////////////////////////////////
@@ -202,10 +212,10 @@ class Rv32i(sim: Boolean = true) extends Module {
   
   Pour un byte : 
   switch (wb_reg_align){
-    case 00 : rdata_shifted = load_data >> 0    (=load_data >> wb_reg_align * 0)
-    case 01 : rdata_shifted = load_data >> 8    (=load_data >> wb_reg_align * 8)
-    case 10 : rdata_shifted = load_data >> 16   (=load_data >> wb_reg_align * 16)
-    case 11 : rdata_shifted = load_data >> 24   (=load_data >> wb_reg_align * 24) (c'est le cat qui fait le *)
+    case 00 : rdata_shifted = load_data >> 0    (=load_data >> (wb_reg_align * 0))
+    case 01 : rdata_shifted = load_data >> 8    (=load_data >> (wb_reg_align * 8))
+    case 10 : rdata_shifted = load_data >> 16   (=load_data >> (wb_reg_align * 16))
+    case 11 : rdata_shifted = load_data >> 24   (=load_data >> (wb_reg_align * 24)) (c'est le cat qui fait le *)
   }
 
   Pour un halfword : ça marche aussi (le cas 01 et le cas 11 ne sont pas utilisés)
@@ -228,11 +238,19 @@ class Rv32i(sim: Boolean = true) extends Module {
   rf.io.we := wb_reg_we
   rf.io.rd_addr := wb_reg_rd
   rf.io.rd_data := rd_data_final
+  
+  /* Connexion des câbles rs1_data et rs2_data
+    On regarde si :
+  - L'instruction en cours fait appel à rd
+  - l'instruction d'avant écrivait dans rd
+  - rd est différent de 0
+  */
 
-  //on écrit ssi l'instruction est Lui, Auipc I/IR ou R
-  val weRf = isLui || isAuipc || isIIR || isR || isJal || isJalr
-  rf.io.we := weRf
+  val reg_save = (wb_reg_we) && (wb_reg_rd =/= 0.U)
+  rs1_data := Mux(reg_save && (rs1 === wb_reg_rd), rd_data_final, rf.io.rs1_data)
+  rs2_data := Mux(reg_save && (rs2 === wb_reg_rd), rd_data_final, rf.io.rs2_data)
 
+  
 
 
 // Sorties de debug
