@@ -60,9 +60,6 @@ class Rv32i(sim: Boolean = true) extends Module {
   val isLoad = opcode === "b0000011".U // Instructions de type Load (LB, LH, LW, LBU, LHU)
 
 
-  //On met 1 dans jumpTaken si on a un saut pour executer NOP au cycle suivant
-  jumpTaken := isJal || isJalr 
-
   // Génération des immédiats
   val immU = Cat(insn(31,12), 0.U(12.W))
   val immI = Cat(Fill(20, insn(31)), insn(31,20))
@@ -98,7 +95,7 @@ class Rv32i(sim: Boolean = true) extends Module {
   alu.io.opB := MuxCase(0.U, Seq(
     isAuipc -> immU,
     (isIIR || isJalr) -> immI,
-    isR   -> rs2_data,
+    (isR||isBranch)   -> rs2_data,
     isStore -> immS
   ))
 
@@ -119,7 +116,7 @@ class Rv32i(sim: Boolean = true) extends Module {
   //On force donc l'opération à une addition ADDI (funct3 = 000, bit30 = 0)
   //Pour JALR, il a bien le même funct3 que ADDI (000) donc on a bien la somme voulue
   alu.io.funct3 := MuxCase(funct3, Seq(
-    isAuipc  -> 0.U,
+    (isAuipc || isStore) -> 0.U,
     isBranch -> funct3_branch
   ))
   alu.io.instru_bit30 := Mux(isAuipc, false.B, instru_bit30)
@@ -136,6 +133,10 @@ class Rv32i(sim: Boolean = true) extends Module {
     (isBranch && (funct3 === "b110".U)) -> !alu_zero, // BLTU
     (isBranch && (funct3 === "b111".U)) -> alu_zero // BGEU
   ))
+
+
+  //On met 1 dans jumpTaken si on a un saut pour executer NOP au cycle suivant
+  jumpTaken := isJal || isJalr || takeBranch
 
   ///////////////////////////////////////////////////////////////////////
   //mise à jour du PC
@@ -229,7 +230,7 @@ class Rv32i(sim: Boolean = true) extends Module {
   rf.io.rd_data := rd_data_final
 
   //on écrit ssi l'instruction est Lui, Auipc I/IR ou R
-  val weRf = isLui || isAuipc || isIIR || isR 
+  val weRf = isLui || isAuipc || isIIR || isR || isJal || isJalr
   rf.io.we := weRf
 
 
