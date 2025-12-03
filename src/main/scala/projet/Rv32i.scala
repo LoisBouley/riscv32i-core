@@ -264,7 +264,7 @@ class Rv32i(sim: Boolean = true) extends Module {
     // Signal indiquant qu'une écriture dans x31 a eu lieu. 
     //On le retarde d'un cycle pour qu'il soit activé lors du premier cycle où x31 contient la nouvelle valeur 
     //(RF est synchronne en écriture)
-    io.valid_x31.get := RegNext(rf.io.we && (rd === 31.U))
+    io.valid_x31.get := RegNext(rf.io.we && (wb_reg_rd === 31.U))
   } else {
     io.x31 := 0.U
   }
