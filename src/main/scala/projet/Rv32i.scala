@@ -178,9 +178,9 @@ class Rv32i(sim: Boolean = true) extends Module {
 
   val addr_lsb = res_alu(1,0)
   io.dbus.be := MuxCase("b0000".U, Seq(
-    (funct3 === "b000".U) -> ("b0001".U << addr_lsb), // SB : 00->0001, 01->0010, 10->0100, 11->1000
-    (funct3 === "b001".U) -> ( "b0011".U << addr_lsb), // SH : 00->0011, 10->1100
-    (funct3 === "b010".U) -> "b1111".U  // SW
+    ((funct3 === "b000".U) && (isStore)) -> ("b0001".U << addr_lsb), // SB : 00->0001, 01->0010, 10->0100, 11->1000
+    ((funct3 === "b001".U) && (isStore)) -> ( "b0011".U << addr_lsb), // SH : 00->0011, 10->1100
+    ((funct3 === "b010".U) && (isStore)) -> "b1111".U  // SW
   )).asTypeOf(Vec(4, Bool()))
 
   io.dbus.en := isStore || isLoad //activation de la mémoire de données pour les instructions Store et Load
@@ -269,11 +269,6 @@ class Rv32i(sim: Boolean = true) extends Module {
     io.x31 := 0.U
   }
 
-  dontTouch(rf.io.rs1_data)
-  dontTouch(rf.io.rs2_data)
-  dontTouch(immU)
-  dontTouch(immI)
-  dontTouch(pc_retarde)
 
   locally(sim)
 }
