@@ -256,6 +256,9 @@ class Rv32i(sim: Boolean = true) extends Module {
 // Sorties de debug
 
   if (sim) {
+    when(reset.asBool) {
+      io.valid_x31.get := false.B
+    }
     // Sortie de debug : valeur de x31
     io.x31 := rf.io.debug_x31.get
     // Signal indiquant qu'une écriture dans x31 a eu lieu. 
