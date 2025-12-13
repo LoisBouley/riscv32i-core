@@ -84,7 +84,6 @@ class Rv32i(sim: Boolean = true) extends Module {
 
 
 
-
   //=============================================
   // Execute : Instanciation de l'ALU
   //=============================================
@@ -159,6 +158,7 @@ class Rv32i(sim: Boolean = true) extends Module {
   pc := Mux(isJalr,target_jalr, Mux(jump_with_imm,immediat_jump, 4.U) + Mux(jump_with_imm,pc_retarde,pc))
   
 
+
   //===========================================
   // Memory : Accès à la mémoire de données
   //===========================================
@@ -184,6 +184,7 @@ class Rv32i(sim: Boolean = true) extends Module {
   )).asTypeOf(Vec(4, Bool()))
 
   io.dbus.en := isStore || isLoad //activation de la mémoire de données pour les instructions Store et Load
+
 
 
   //==============================================
@@ -252,7 +253,6 @@ class Rv32i(sim: Boolean = true) extends Module {
 
   
 
-
 // Sorties de debug
 
   if (sim) {
@@ -269,6 +269,4 @@ class Rv32i(sim: Boolean = true) extends Module {
     io.x31 := 0.U
   }
 
-
-  locally(sim)
 }

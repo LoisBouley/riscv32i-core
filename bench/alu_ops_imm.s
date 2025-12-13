@@ -22,7 +22,7 @@
     srli x31, x31, 2  # 0x7FFFF290 -> 0x1FFFFCA4
 
     srai x31, x31, 1  # 0x1FFFFCA4 -> 0x0FFFFE52
-    #on vérifie que le décalage arithmétique recopie bien le bit de signe
+    # On vérifie que le décalage arithmétique recopie bien le bit de signe
     addi x31, x0, -1    # x31 = -1 = 0xFFFFFFFF
     srai x31, x31, 1    # 0xFFFFFFFF >> 1  = 0xFFFFFFFF
     srai x31, x31, 2    # 0xFFFFFFFF >> 2  = 0xFFFFFFFF
