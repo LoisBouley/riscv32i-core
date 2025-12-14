@@ -6,6 +6,7 @@ This project involves the design and implementation of a 32-bit RISC-V processor
 
 The core was synthesized and successfully deployed on a Digilent Zybo FPGA to run interactive applications like Space Invaders and LED animations.
 
+
 ## 🏗 Architecture
 
 ![](docs/schema.jpg)
@@ -21,6 +22,7 @@ The processor implements the classic RISC-V Von Neumann architecture with the fo
 -   **Control Hazards**: Branch prediction assumes "not taken", with pipeline flush on branch taken.
 -   **Memory**: Harvard-style logical separation (IMEM/DMEM) mapped to Dual-Port BRAM.
 
+
 ## 🛠️ Tech Stack
 
 -   **Language**: Scala 2.13 / Chisel 3
@@ -28,6 +30,7 @@ The processor implements the classic RISC-V Von Neumann architecture with the fo
 -   **Simulation**: Verilator / GTKWave
 -   **Synthesis & P&R**: Xilinx Vivado 2019.1
 -   **Hardware**: Digilent Zybo Z7-10 - Xilinx Zynq-7000 ARM/FPGA SoC development board
+
 
 ## 📸 Demo
 
@@ -40,6 +43,7 @@ The processor implements the classic RISC-V Von Neumann architecture with the fo
 ![](docs/gtkwave.png)
 
 *Figure: Waveform showing the instruction pipeline, hazard resolution, and a taken conditional branch (`beq`)*
+
 
 ## 🚀 How to Run
 
@@ -72,6 +76,7 @@ make autotest PROG=instr_jalr
 make simulation PROG=instr_jalr
 ```
 
+
 ### FPGA Deployment
 
 ``` bash
@@ -81,6 +86,13 @@ make fpga PROG=invaders
 
 *Action: After synthesis (which may take a few minutes), the bitstream is uploaded to the Zybo board. The application (e.g., Space Invaders) starts running immediately on the connected VGA display / LEDs.*
 
+
+
 ## 🎓 Context
 
 This project was realized as part of the "Fondements Matériels du Numérique" (Digital Hardware Foundations) curriculum at Ensimag (Grenoble INP), National School of Computer Science and Applied Mathematics.
+
+## 👥 Contributors
+
+* **[Loïs Bouley]** - [LinkedIn](https://www.linkedin.com/in/lo%C3%AFs-bouley-0b0276385/)
+* **[Marwa El Khazrouni]** - [LinkedIn](https://www.linkedin.com/in/marwa-el-khazrouni-a6a47727b/)
