@@ -87,12 +87,12 @@ make fpga PROG=invaders
 *Action: After synthesis (which may take a few minutes), the bitstream is uploaded to the Zybo board. The application (e.g., Space Invaders) starts running immediately on the connected VGA display / LEDs.*
 
 
+## 👥 Contributors
+This project was developed in collaboration by:
+* **Loïs Bouley** - [LinkedIn](https://www.linkedin.com/in/lo%C3%AFs-bouley-0b0276385/)
+* **Marwa El Khazrouni** - [LinkedIn](https://www.linkedin.com/in/marwa-el-khazrouni-a6a47727b/)
+
 
 ## 🎓 Context
 
 This project was realized as part of the "Fondements Matériels du Numérique" (Digital Hardware Foundations) curriculum at Ensimag (Grenoble INP), National School of Computer Science and Applied Mathematics.
-
-## 👥 Contributors
-
-* **[Loïs Bouley]** - [LinkedIn](https://www.linkedin.com/in/lo%C3%AFs-bouley-0b0276385/)
-* **[Marwa El Khazrouni]** - [LinkedIn](https://www.linkedin.com/in/marwa-el-khazrouni-a6a47727b/)
