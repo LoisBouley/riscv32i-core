@@ -8,7 +8,7 @@ The core was synthesized and successfully deployed on a Digilent Zybo FPGA to ru
 
 ## 🏗 Architecture
 
-![](docs/schema.jpg){width="915"}
+![](docs/schema.jpg)
 
 The processor implements the classic RISC-V Von Neumann architecture with the following features:
 
@@ -52,19 +52,16 @@ All test files are located in the `bench/` directory and are written in **RISC-V
 ``` bash
 # Run unit tests
 make autotest
-
-# Run a specific benchmark (e.g., counters)
-make simulation PROG=compteur
 ```
 
 *Expected output:*
 
 ![](docs/autotest_output.png)
 
-**Run a specific unit test (e.g. test1):**
+**Run a specific unit test (e.g. instr_jalr.s):**
 
 ``` bash
-make autotest PROG=test1
+make autotest PROG=instr_jalr
 ```
 
 **Run simulation for GTKWave visualization:**
@@ -72,7 +69,7 @@ make autotest PROG=test1
 ``` bash
 # This runs the simulation without checking results automatically,
 # allowing you to inspect waveforms in GTKWave even if the test logic isn't fully implemented.
-make simulation PROG=test1
+make simulation PROG=instr_jalr
 ```
 
 ### FPGA Deployment
